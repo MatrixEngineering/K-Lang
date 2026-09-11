@@ -136,8 +136,58 @@ impl Lexer {
                     TokenKind::String
                 }
             }
-            'a'..='z' | 'A'..='Z' | '_' => TokenKind::Identifier,
-            '0'..='9' => TokenKind::Number(1.0),
+            'a'..='z' | 'A'..='Z' | '_' => {
+                let mut string: String = ch.to_string();
+                while let Some(&next) = self.input.peek() {
+                    if !next.is_whitespace() || next.is_ascii_digit() || next == '_' {
+                        if next.is_ascii_punctuation() && next != '_' {
+                            break;
+                        }
+                        string.push(next);
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                }
+
+                literal = Some(string);
+                TokenKind::Identifier
+            }
+            '0'..='9' => {
+                let mut number = String::from(ch);
+                while let Some(&c) = self.input.peek() {
+                    if c.is_ascii_digit() {
+                        number.push(c);
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                }
+                let mut temp_input = self.input.clone();
+                if temp_input.next_if_eq(&'.').is_some() {
+                    if let Some(c) = temp_input.next()
+                        && c.is_ascii_digit()
+                    {
+                        self.advance();
+                    }
+                    let mut next_number = String::new();
+                    while let Some(&c) = self.input.peek() {
+                        if c.is_ascii_digit() {
+                            next_number.push(c);
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    }
+
+                    if !next_number.is_empty() {
+                        number.push('.');
+                        number.push_str(&next_number);
+                    }
+                }
+                let num: f64 = number.parse().unwrap();
+                TokenKind::Number(num)
+            }
             c if is_khmer_digit(c) => {
                 let khmer_to_number_char = |next| match next {
                     '០' => '0',
@@ -261,7 +311,7 @@ mod tests {
 
     #[test]
     fn keyword() {
-        let buffer = "១.២";
+        let buffer = "១.២ 1";
         let mut lexer = Lexer::new(buffer);
         let token = lexer.next_token().unwrap();
         assert_eq!(token.kind, TokenKind::Number(1.2));
