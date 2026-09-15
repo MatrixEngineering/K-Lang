@@ -1,6 +1,19 @@
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.dependencies]
+k_ast = {version = "0.1.0", path= "crates/k_ast"}
+k_parser = {version = "0.1.0", path= "crates/k_parser"}
+
 [package]
-name = "klang"
+name = "k"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "k"
+path = "bin/app.rs"
+
 [dependencies]
+k_parser = { workspace = true }

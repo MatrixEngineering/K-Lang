@@ -3,5 +3,19 @@
 version = 4
 
 [[package]]
-name = "klang"
+name = "k"
 version = "0.1.0"
+dependencies = [
+ "k_parser",
+]
+
+[[package]]
+name = "k_ast"
+version = "0.1.0"
+
+[[package]]
+name = "k_parser"
+version = "0.1.0"
+dependencies = [
+ "k_ast",
+]

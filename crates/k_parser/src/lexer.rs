@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use std::{fs, io};
 
-use crate::token::{Token, TokenErrorKind, TokenKind};
+use k_ast::token::{Token, TokenErrorKind, TokenKind};
 
 #[derive(Debug)]
 pub struct Lexer {
@@ -307,7 +307,8 @@ impl Iterator for Lexer {
 
 #[cfg(test)]
 mod tests {
-    use crate::{lexer::Lexer, token::TokenKind};
+    use crate::lexer::Lexer;
+    use k_ast::token::TokenKind;
 
     #[test]
     fn keyword() {
