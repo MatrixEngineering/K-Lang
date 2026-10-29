@@ -110,7 +110,9 @@ impl Lexer {
             }
             '-' => TokenKind::Minus,
             '+' => TokenKind::Plus,
-
+            ',' => TokenKind::Comma,
+            '។' | ';' => TokenKind::Semi,
+            '.' => TokenKind::Dot,
             '=' => {
                 if self.input.next_if_eq(&'=').is_some() {
                     TokenKind::EqualEqual
@@ -203,21 +205,21 @@ impl Lexer {
                 TokenKind::Number(num)
             }
 
-            c if is_khmer_char(c) => {
-                let mut literal: String = c.to_string();
+            c => {
+                let mut string: String = c.to_string();
                 while let Some(&next) = self.input.peek() {
-                    if !next.is_whitespace() || next.is_ascii_digit() || next != '_' {
+                    if !next.is_whitespace() || next.is_ascii_digit() || next == '_' {
                         if next.is_ascii_punctuation() && next != '_' {
                             break;
                         }
-                        literal.push(next);
+                        string.push(next);
                         self.advance();
                     } else {
                         break;
                     }
                 }
 
-                match literal.as_str() {
+                match string.as_str() {
                     "តាង" => TokenKind::Var,
                     "បើ" => TokenKind::If,
                     "បើពុំនោះទេ" => TokenKind::Else,
@@ -229,12 +231,17 @@ impl Lexer {
                     "និង" => TokenKind::And,
                     "ពិត" => TokenKind::True,
                     "មិនពិត" => TokenKind::False,
+                    "សម្រាប់" => TokenKind::For,
+                    "ខណៈ" => TokenKind::While,
+                    "វត្ថុនេះ" => TokenKind::This,
+                    "ថ្នាក់មេ" => TokenKind::Super,
+                    "ត្រឡប់" => TokenKind::Return,
                     _ => {
-                        todo!()
+                        literal = Some(string);
+                        TokenKind::Identifier
                     }
                 }
             }
-            _ => todo!(),
         };
 
         Some(Token {
@@ -281,7 +288,11 @@ impl Iterator for Lexer {
 #[cfg(test)]
 mod tests {
     use crate::lexer::Lexer;
-    use k_ast::token::TokenKind;
+    use k_ast::token::{TokenErrorKind, TokenKind};
+
+    fn kinds(input: &str) -> Vec<TokenKind> {
+        Lexer::new(input).map(|t| t.kind).collect()
+    }
 
     #[test]
     fn keyword() {
@@ -289,5 +300,272 @@ mod tests {
         let mut lexer = Lexer::new(buffer);
         let token = lexer.next_token().unwrap();
         assert_eq!(token.kind, TokenKind::Number(1.231));
+    }
+
+    #[test]
+    fn empty_and_whitespace_input() {
+        assert!(kinds("").is_empty());
+        assert!(kinds("  \t\n\r\n ").is_empty());
+    }
+
+    #[test]
+    fn single_char_tokens() {
+        assert_eq!(
+            kinds("(){}*/+-"),
+            vec![
+                TokenKind::LeftParen,
+                TokenKind::RightParen,
+                TokenKind::LeftBrace,
+                TokenKind::RightBrace,
+                TokenKind::Star,
+                TokenKind::Slash,
+                TokenKind::Plus,
+                TokenKind::Minus,
+            ]
+        );
+    }
+
+    #[test]
+    fn one_or_two_char_operators() {
+        assert_eq!(
+            kinds("! != = == < <= > >="),
+            vec![
+                TokenKind::Bang,
+                TokenKind::BangEqual,
+                TokenKind::Equal,
+                TokenKind::EqualEqual,
+                TokenKind::Less,
+                TokenKind::LessEqual,
+                TokenKind::Greater,
+                TokenKind::GreaterEqual,
+            ]
+        );
+    }
+
+    #[test]
+    fn adjacent_operators_without_spaces() {
+        assert_eq!(
+            kinds("===!"),
+            vec![TokenKind::EqualEqual, TokenKind::Equal, TokenKind::Bang]
+        );
+    }
+
+    #[test]
+    fn comment_is_skipped() {
+        assert_eq!(kinds("// hello\n+"), vec![TokenKind::Plus]);
+        assert!(kinds("// only a comment").is_empty());
+    }
+
+    #[test]
+    fn slash_is_not_comment() {
+        assert_eq!(
+            kinds("4 / 2"),
+            vec![
+                TokenKind::Number(4.0),
+                TokenKind::Slash,
+                TokenKind::Number(2.0)
+            ]
+        );
+    }
+
+    #[test]
+    fn string_literal() {
+        let token = Lexer::new("\"hello world\"").next_token().unwrap();
+        assert_eq!(token.kind, TokenKind::String);
+        assert_eq!(token.literal.as_deref(), Some("hello world"));
+    }
+
+    #[test]
+    fn empty_string_literal() {
+        let token = Lexer::new("\"\"").next_token().unwrap();
+        assert_eq!(token.kind, TokenKind::String);
+        assert_eq!(token.literal.as_deref(), Some(""));
+    }
+
+    #[test]
+    fn khmer_string_literal() {
+        let token = Lexer::new("\"សួស្តី\"").next_token().unwrap();
+        assert_eq!(token.kind, TokenKind::String);
+        assert_eq!(token.literal.as_deref(), Some("សួស្តី"));
+    }
+
+    #[test]
+    fn unterminated_string() {
+        let token = Lexer::new("\"abc").next_token().unwrap();
+        assert_eq!(
+            token.kind,
+            TokenKind::Error(TokenErrorKind::UnterminatedString)
+        );
+        assert!(token.literal.is_none());
+    }
+
+    #[test]
+    fn multiline_string_advances_line() {
+        let mut lexer = Lexer::new("\"a\nb\" +");
+        assert_eq!(lexer.next_token().unwrap().kind, TokenKind::String);
+        let plus = lexer.next_token().unwrap();
+        assert_eq!(plus.kind, TokenKind::Plus);
+        assert_eq!(plus.line, 2);
+    }
+
+    #[test]
+    fn identifiers() {
+        let tokens: Vec<_> = Lexer::new("foo _bar Baz9 a_b").collect();
+        let literals: Vec<_> = tokens.iter().map(|t| t.literal.as_deref()).collect();
+        assert!(tokens.iter().all(|t| t.kind == TokenKind::Identifier));
+        assert_eq!(
+            literals,
+            vec![Some("foo"), Some("_bar"), Some("Baz9"), Some("a_b")]
+        );
+    }
+
+    #[test]
+    fn identifier_stops_at_punctuation() {
+        let tokens: Vec<_> = Lexer::new("foo(bar)").collect();
+        assert_eq!(tokens.len(), 4);
+        assert_eq!(tokens[0].literal.as_deref(), Some("foo"));
+        assert_eq!(tokens[1].kind, TokenKind::LeftParen);
+        assert_eq!(tokens[2].literal.as_deref(), Some("bar"));
+        assert_eq!(tokens[3].kind, TokenKind::RightParen);
+    }
+
+    #[test]
+    fn integer_and_float_numbers() {
+        assert_eq!(kinds("0"), vec![TokenKind::Number(0.0)]);
+        assert_eq!(kinds("42"), vec![TokenKind::Number(42.0)]);
+        assert_eq!(kinds("3.14"), vec![TokenKind::Number(3.14)]);
+    }
+
+    #[test]
+    fn khmer_digits() {
+        assert_eq!(kinds("០"), vec![TokenKind::Number(0.0)]);
+        assert_eq!(kinds("១២៣"), vec![TokenKind::Number(123.0)]);
+        assert_eq!(kinds("៩.៥"), vec![TokenKind::Number(9.5)]);
+    }
+
+    #[test]
+    fn mixed_digit_scripts() {
+        assert_eq!(kinds("1២3"), vec![TokenKind::Number(123.0)]);
+    }
+
+    #[test]
+    fn number_followed_by_operator() {
+        assert_eq!(
+            kinds("1+2"),
+            vec![
+                TokenKind::Number(1.0),
+                TokenKind::Plus,
+                TokenKind::Number(2.0)
+            ]
+        );
+    }
+
+    #[test]
+    fn khmer_keywords() {
+        let cases = [
+            ("តាង", TokenKind::Var),
+            ("បើ", TokenKind::If),
+            ("បើពុំនោះទេ", TokenKind::Else),
+            ("បោះពុម្ព", TokenKind::Print),
+            ("អនុគមន៍", TokenKind::Fun),
+            ("ពុម្ពគំរូ", TokenKind::Class),
+            ("គ្មានតម្លៃ", TokenKind::Null),
+            ("ឬ", TokenKind::Or),
+            ("និង", TokenKind::And),
+            ("ពិត", TokenKind::True),
+            ("មិនពិត", TokenKind::False),
+            ("សម្រាប់", TokenKind::For),
+            ("ខណៈ", TokenKind::While),
+            ("ត្រឡប់", TokenKind::Return),
+            ("វត្ថុនេះ", TokenKind::This),
+            ("ថ្នាក់មេ", TokenKind::Super),
+        ];
+        for (src, expected) in cases {
+            assert_eq!(kinds(src), vec![expected], "keyword {src}");
+        }
+    }
+
+    #[test]
+    fn khmer_keyword_before_punctuation() {
+        assert_eq!(
+            kinds("បើ(ពិត)"),
+            vec![
+                TokenKind::If,
+                TokenKind::LeftParen,
+                TokenKind::True,
+                TokenKind::RightParen,
+            ]
+        );
+    }
+
+    #[test]
+    fn variable_declaration_statement() {
+        assert_eq!(
+            kinds("តាង x = ១២ + 3"),
+            vec![
+                TokenKind::Var,
+                TokenKind::Identifier,
+                TokenKind::Equal,
+                TokenKind::Number(12.0),
+                TokenKind::Plus,
+                TokenKind::Number(3.0),
+            ]
+        );
+    }
+
+    #[test]
+    fn line_numbers_are_tracked() {
+        let tokens: Vec<_> = Lexer::new("a\n\nb // c\n  d").collect();
+        let lines: Vec<_> = tokens.iter().map(|t| t.line).collect();
+        assert_eq!(lines, vec![1, 3, 4]);
+    }
+
+    #[test]
+    fn dot_comma_semi_tokens() {
+        assert_eq!(
+            kinds(". , ;"),
+            vec![TokenKind::Dot, TokenKind::Comma, TokenKind::Semi]
+        );
+    }
+
+    #[test]
+    fn call_with_arguments() {
+        assert_eq!(
+            kinds("f(a, b);"),
+            vec![
+                TokenKind::Identifier,
+                TokenKind::LeftParen,
+                TokenKind::Identifier,
+                TokenKind::Comma,
+                TokenKind::Identifier,
+                TokenKind::RightParen,
+                TokenKind::Semi,
+            ]
+        );
+    }
+
+    #[test]
+    fn property_access() {
+        assert_eq!(
+            kinds("a.b"),
+            vec![TokenKind::Identifier, TokenKind::Dot, TokenKind::Identifier]
+        );
+    }
+
+    #[test]
+    fn number_with_trailing_dot() {
+        assert_eq!(kinds("1."), vec![TokenKind::Number(1.0), TokenKind::Dot]);
+    }
+
+    #[test]
+    fn unknown_khmer_word_is_identifier() {
+        let token = Lexer::new("សួស្តី").next_token().unwrap();
+        assert_eq!(token.kind, TokenKind::Identifier);
+        assert_eq!(token.literal.as_deref(), Some("សួស្តី"));
+    }
+
+    #[test]
+    fn from_file_missing_returns_error() {
+        assert!(Lexer::from_file("definitely/not/a/real/file.k").is_err());
     }
 }
