@@ -12,6 +12,7 @@ pub struct Lexer {
 #[derive(Debug)]
 pub enum ParserError {
     IoError(std::io::Error),
+    MSG(String),
     Other,
 }
 
@@ -20,10 +21,9 @@ impl std::error::Error for ParserError {}
 impl std::fmt::Display for ParserError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::IoError(e) => write!(f, "Hello {:?}", e),
-            _ => {
-                todo!()
-            }
+            Self::IoError(e) => e.fmt(f),
+            Self::MSG(s) => s.fmt(f),
+            _ => write!(f, "Unexpected Error"),
         }
     }
 }
@@ -153,11 +153,25 @@ impl Lexer {
                 literal = Some(string);
                 TokenKind::Identifier
             }
-            '0'..='9' => {
-                let mut number = String::from(ch);
+            '0'..='9' | '\u{17E0}'..='\u{17E9}' => {
+                let get_ch = |next| match next {
+                    '០' => '0',
+                    '១' => '1',
+                    '២' => '2',
+                    '៣' => '3',
+                    '៤' => '4',
+                    '៥' => '5',
+                    '៦' => '6',
+                    '៧' => '7',
+                    '៨' => '8',
+                    '៩' => '9',
+                    '.' => '.',
+                    c => c,
+                };
+                let mut number = String::from(get_ch(ch));
                 while let Some(&c) = self.input.peek() {
-                    if c.is_ascii_digit() {
-                        number.push(c);
+                    if c.is_ascii_digit() || is_khmer_digit(c) {
+                        number.push(get_ch(c));
                         self.advance();
                     } else {
                         break;
@@ -166,14 +180,14 @@ impl Lexer {
                 let mut temp_input = self.input.clone();
                 if temp_input.next_if_eq(&'.').is_some() {
                     if let Some(c) = temp_input.next()
-                        && c.is_ascii_digit()
+                        && (c.is_ascii_digit() || is_khmer_digit(c))
                     {
                         self.advance();
                     }
                     let mut next_number = String::new();
                     while let Some(&c) = self.input.peek() {
-                        if c.is_ascii_digit() {
-                            next_number.push(c);
+                        if c.is_ascii_digit() || is_khmer_digit(c) {
+                            next_number.push(get_ch(c));
                             self.advance();
                         } else {
                             break;
@@ -188,48 +202,7 @@ impl Lexer {
                 let num: f64 = number.parse().unwrap();
                 TokenKind::Number(num)
             }
-            c if is_khmer_digit(c) => {
-                let khmer_to_number_char = |next| match next {
-                    '០' => '0',
-                    '១' => '1',
-                    '២' => '2',
-                    '៣' => '3',
-                    '៤' => '4',
-                    '៥' => '5',
-                    '៦' => '6',
-                    '៧' => '7',
-                    '៨' => '8',
-                    '៩' => '9',
-                    '.' => '.',
-                    _ => unreachable!(),
-                };
 
-                let mut string_digit: String = khmer_to_number_char(c).to_string();
-                let mut dot_count = 0;
-                let mut is_error = false;
-                while let Some(&next) = self.input.peek() {
-                    if is_khmer_char(next) || next == '.' {
-                        if next == '.' {
-                            dot_count += 1;
-                        }
-                        if dot_count > 1 {
-                            is_error = true;
-                        }
-                        let next = khmer_to_number_char(next);
-                        string_digit.push(next);
-                        self.advance();
-                    } else {
-                        break;
-                    }
-                }
-
-                if is_error {
-                    TokenKind::Error(TokenErrorKind::Unexpected)
-                } else {
-                    let number: f64 = string_digit.parse().unwrap();
-                    TokenKind::Number(number)
-                }
-            }
             c if is_khmer_char(c) => {
                 let mut literal: String = c.to_string();
                 while let Some(&next) = self.input.peek() {
@@ -312,9 +285,9 @@ mod tests {
 
     #[test]
     fn keyword() {
-        let buffer = "១.២ 1";
+        let buffer = "១.២3១";
         let mut lexer = Lexer::new(buffer);
         let token = lexer.next_token().unwrap();
-        assert_eq!(token.kind, TokenKind::Number(1.2));
+        assert_eq!(token.kind, TokenKind::Number(1.231));
     }
 }

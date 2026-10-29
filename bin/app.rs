@@ -26,7 +26,7 @@ fn main() -> io::Result<()> {
         let filename = args.first().unwrap();
         match File::open(filename) {
             Ok(mut file) => {
-                let mut buff = [0u8; 1000];
+                let mut buff = vec![];
                 file.read_exact(&mut buff)?;
                 println!("{buff:?}");
             }
